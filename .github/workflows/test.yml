@@ -1,0 +1,41 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 -m unittest discover -s tests
+
+  # The action can only be trusted once it has run as an action, against a
+  # throwaway app, all the way up to the BadgeHub calls it does not send.
+  self:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Lay out an example app
+        run: |
+          mkdir -p com.example.app
+          cat > com.example.app/MANIFEST.JSON <<'JSON'
+          {"name":"Example","publisher":"Example","short_description":"An example","long_description":"An example app","fullname":"com.example.app","version":"0.0.1","category":"utility"}
+          JSON
+          echo "print('hello')" > com.example.app/app.py
+      - uses: ./
+        id: release
+        with:
+          version: v1.2.3
+          app-directory: com.example.app
+          output-directory: dist
+          dry-run: 'true'
+      - run: test "${{ steps.release.outputs.mpk }}" = "dist/com.example.app_1.2.3.mpk"

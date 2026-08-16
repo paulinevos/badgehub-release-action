@@ -1,0 +1,117 @@
+name: BadgeHub release
+description: Sets the version in MANIFEST.JSON, builds a deterministic .mpk, and publishes it to BadgeHub.
+author: Pauline Vos
+
+inputs:
+  version:
+    description: >-
+      The version to release, as major.minor.patch. A leading "v" is stripped,
+      so ${{ github.event.release.tag_name }} can be passed straight through.
+    required: true
+  app-directory:
+    description: >-
+      The directory holding MANIFEST.JSON. Its name must be the manifest's
+      fullname, because that is the one top-level directory the .mpk may hold.
+    required: true
+  output-directory:
+    description: Where to write the .mpk.
+    required: false
+    default: .
+  badgehub-token:
+    description: >-
+      A BadgeHub project API token. Publishing is skipped with a warning when
+      this is empty, so the build still runs in forks and in repositories that
+      do not publish to BadgeHub.
+    required: false
+    default: ''
+  badgehub-slug:
+    description: The BadgeHub project slug. Defaults to the manifest's fullname.
+    required: false
+    default: ''
+  dry-run:
+    description: Print the BadgeHub calls without sending them.
+    required: false
+    default: 'false'
+
+outputs:
+  version:
+    description: The released version, without any leading "v".
+    value: ${{ steps.build.outputs.version }}
+  fullname:
+    description: The manifest's fullname.
+    value: ${{ steps.build.outputs.fullname }}
+  mpk:
+    description: The path to the built .mpk.
+    value: ${{ steps.build.outputs.mpk }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set the version and build the .mpk
+      id: build
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/scripts
+        APP_DIRECTORY: ${{ inputs.app-directory }}
+        OUTPUT_DIRECTORY: ${{ inputs.output-directory }}
+        REQUESTED_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        # Tags get cut both as "v0.2.4" and "0.2.5", so accept either.
+        VERSION="${REQUESTED_VERSION#v}"
+        MANIFEST="${APP_DIRECTORY}/MANIFEST.JSON"
+
+        python3 "${SCRIPTS}/manifest.py" "${MANIFEST}" --set-version "${VERSION}"
+        FULLNAME="$(python3 "${SCRIPTS}/manifest.py" "${MANIFEST}" --get fullname)"
+
+        mkdir -p "${OUTPUT_DIRECTORY}"
+        bash "${SCRIPTS}/bundle.sh" "${APP_DIRECTORY}" "${OUTPUT_DIRECTORY}"
+        MPK="${OUTPUT_DIRECTORY%/}/${FULLNAME}_${VERSION}.mpk"
+
+        {
+          echo "version=${VERSION}"
+          echo "fullname=${FULLNAME}"
+          echo "mpk=${MPK}"
+        } >> "$GITHUB_OUTPUT"
+
+    # A .mpk with anything other than one top-level directory named after
+    # fullname is rejected by MicroPythonOS at install time, long after CI.
+    - name: Check the archive layout
+      shell: bash
+      env:
+        MPK: ${{ steps.build.outputs.mpk }}
+        FULLNAME: ${{ steps.build.outputs.fullname }}
+      run: |
+        set -euo pipefail
+        test -f "${MPK}"
+        TOP="$(unzip -Z1 "${MPK}" | cut -d/ -f1 | sort -u)"
+        test "${TOP}" = "${FULLNAME}"
+
+    - name: Publish to BadgeHub
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/scripts
+        BADGEHUB_API_TOKEN: ${{ inputs.badgehub-token }}
+        SLUG: ${{ inputs.badgehub-slug || steps.build.outputs.fullname }}
+        MPK: ${{ steps.build.outputs.mpk }}
+        VERSION: ${{ steps.build.outputs.version }}
+        DRY_RUN: ${{ inputs.dry-run }}
+      run: |
+        set -euo pipefail
+        if [ -z "${BADGEHUB_API_TOKEN}" ] && [ "${DRY_RUN}" != "true" ]; then
+          echo "::warning::badgehub-token is not set; skipping BadgeHub"
+          exit 0
+        fi
+        DRY_RUN_FLAG=()
+        if [ "${DRY_RUN}" = "true" ]; then
+          DRY_RUN_FLAG=(--dry-run)
+        fi
+        python3 "${SCRIPTS}/publish_badgehub.py" \
+          --mpk "${MPK}" \
+          --slug "${SLUG}" \
+          --version "${VERSION}" \
+          "${DRY_RUN_FLAG[@]}"
+
+branding:
+  icon: package
+  color: purple
