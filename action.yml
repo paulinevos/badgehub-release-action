@@ -47,6 +47,20 @@ outputs:
 runs:
   using: composite
   steps:
+    # The same bundler this action's users run locally, so what a release
+    # publishes is the archive they already built and installed by hand.
+    - name: Install bh
+      shell: bash
+      run: |
+        set -euo pipefail
+        # Homebrew ships on the Linux runners but is left off PATH.
+        if [ -x /home/linuxbrew/.linuxbrew/bin/brew ]; then
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+        fi
+        brew install paulinevos/tap/badgehub \
+          || brew upgrade paulinevos/tap/badgehub
+        echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
+
     - name: Set the version and build the .mpk
       id: build
       shell: bash
@@ -64,8 +78,10 @@ runs:
         python3 "${SCRIPTS}/manifest.py" "${MANIFEST}" --set-version "${VERSION}"
         FULLNAME="$(python3 "${SCRIPTS}/manifest.py" "${MANIFEST}" --get fullname)"
 
-        mkdir -p "${OUTPUT_DIRECTORY}"
-        bash "${SCRIPTS}/bundle.sh" "${APP_DIRECTORY}" "${OUTPUT_DIRECTORY}"
+        bh bundle \
+          --app-directory "${APP_DIRECTORY}" \
+          --output-directory "${OUTPUT_DIRECTORY}" \
+          --no-gitignore
         MPK="${OUTPUT_DIRECTORY%/}/${FULLNAME}_${VERSION}.mpk"
 
         {

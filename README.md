@@ -1,8 +1,12 @@
 # BadgeHub release action
 
 Releases a [MicroPythonOS](https://micropythonos.com) app: writes the version
-you give it into `MANIFEST.JSON`, builds a deterministic `.mpk`, checks the
+you give it into `MANIFEST.JSON`, builds the `.mpk` with
+[`bh bundle`](https://github.com/paulinevos/badgehub-scaffolder), checks the
 archive layout, and publishes the result to [BadgeHub](https://badgehub.eu).
+
+`bh` is installed from its Homebrew tap during the run, so a release ships the
+same bytes `bh bundle` gives you locally.
 
 Everything is driven by the app's own manifest — the package is named after
 `fullname` and `version`, and the BadgeHub project page is filled from the

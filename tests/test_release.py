@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Covers the pieces the workflow cannot: manifest editing and bundling."""
+"""Covers the pieces the workflow cannot: manifest editing and publishing."""
 
 import json
 import shutil
@@ -41,6 +41,19 @@ def run(command):
     return subprocess.run(command, capture_output=True, text=True)
 
 
+def stub_mpk(directory):
+    """Something for the publisher to upload.
+
+    Bundling itself lives in badgehub-scaffolder now, and is tested there; a
+    publish test only needs a file of the right name and shape.
+    """
+    path = directory / "{}_0.1.0.mpk".format(FULLNAME)
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_STORED) as archive:
+        archive.writestr("{}/MANIFEST.JSON".format(FULLNAME), MANIFEST_TEXT)
+        archive.writestr("{}/app.py".format(FULLNAME), "print('hello')\n")
+    return path
+
+
 class ManifestTest(unittest.TestCase):
 
     def setUp(self):
@@ -78,57 +91,13 @@ class ManifestTest(unittest.TestCase):
         self.assertNotEqual(0, result.returncode)
 
 
-class BundleTest(unittest.TestCase):
-
-    def setUp(self):
-        self.root = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, self.root)
-        self.app = ExampleApp(self.root)
-        self.output = Path(self.root) / "dist"
-        self.output.mkdir()
-
-    def bundle(self, app_directory=None):
-        return run(["bash", str(SCRIPTS / "bundle.sh"),
-                    str(app_directory or self.app.directory), str(self.output)])
-
-    def test_names_the_package_after_fullname_and_version(self):
-        self.bundle()
-        self.assertTrue((self.output / "{}_0.1.0.mpk".format(FULLNAME)).is_file())
-
-    def test_holds_one_top_level_directory_named_after_fullname(self):
-        self.bundle()
-        with zipfile.ZipFile(self.output / "{}_0.1.0.mpk".format(FULLNAME)) as archive:
-            tops = {name.split("/")[0] for name in archive.namelist()}
-        self.assertEqual({FULLNAME}, tops)
-
-    def test_stores_entries_rather_than_deflating_them(self):
-        self.bundle()
-        with zipfile.ZipFile(self.output / "{}_0.1.0.mpk".format(FULLNAME)) as archive:
-            methods = {info.compress_type for info in archive.infolist()}
-        self.assertEqual({zipfile.ZIP_STORED}, methods)
-
-    def test_is_reproducible(self):
-        self.bundle()
-        first = (self.output / "{}_0.1.0.mpk".format(FULLNAME)).read_bytes()
-        self.bundle()
-        second = (self.output / "{}_0.1.0.mpk".format(FULLNAME)).read_bytes()
-        self.assertEqual(first, second)
-
-    def test_refuses_a_directory_not_named_after_fullname(self):
-        renamed = Path(self.root) / "app"
-        shutil.copytree(self.app.directory, renamed)
-        self.assertNotEqual(0, self.bundle(renamed).returncode)
-
-
 class PublishTest(unittest.TestCase):
 
     def setUp(self):
         self.root = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.root)
         self.app = ExampleApp(self.root)
-        run(["bash", str(SCRIPTS / "bundle.sh"),
-             str(self.app.directory), str(self.root)])
-        self.mpk = Path(self.root) / "{}_0.1.0.mpk".format(FULLNAME)
+        self.mpk = stub_mpk(Path(self.root))
 
     def publish(self, version):
         return run([sys.executable, str(SCRIPTS / "publish_badgehub.py"),
