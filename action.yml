@@ -6,7 +6,7 @@ inputs:
   version:
     description: >-
       The version to release, as major.minor.patch. A leading "v" is stripped,
-      so ${{ github.event.release.tag_name }} can be passed straight through.
+      so a release tag name can be passed straight through.
     required: true
   app-directory:
     description: >-
